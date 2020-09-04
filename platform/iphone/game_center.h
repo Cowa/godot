@@ -59,6 +59,8 @@ public:
 	void request_achievement_descriptions();
 	Error show_game_center(Variant p_params);
 	Error request_identity_verification_signature();
+	Error fetch_saved_games();
+	Error save_game_data(Variant p_param);
 
 	void game_center_closed();
 
