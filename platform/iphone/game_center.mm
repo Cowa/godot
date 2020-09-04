@@ -59,6 +59,8 @@ void GameCenter::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("request_achievement_descriptions"), &GameCenter::request_achievement_descriptions);
 	ClassDB::bind_method(D_METHOD("show_game_center"), &GameCenter::show_game_center);
 	ClassDB::bind_method(D_METHOD("request_identity_verification_signature"), &GameCenter::request_identity_verification_signature);
+	ClassDB::bind_method(D_METHOD("fetch_saved_games"), &GameCenter::fetch_saved_games);
+	ClassDB::bind_method(D_METHOD("save_game_data"), &GameCenter::save_game_data);
 
 	ClassDB::bind_method(D_METHOD("get_pending_event_count"), &GameCenter::get_pending_event_count);
 	ClassDB::bind_method(D_METHOD("pop_pending_event"), &GameCenter::pop_pending_event);
@@ -75,7 +77,6 @@ void GameCenter::return_connect_error(const char *p_error_description) {
 }
 
 void GameCenter::connect() {
-
 	//if this class isn't available, game center isn't implemented
 	if ((NSClassFromString(@"GKLocalPlayer")) == nil) {
 		return_connect_error("GameCenter not available");
@@ -363,6 +364,82 @@ Error GameCenter::request_identity_verification_signature() {
 
 	return OK;
 };
+
+Error GameCenter::fetch_saved_games() {
+
+	ERR_FAIL_COND_V(!is_authenticated(), ERR_UNAUTHORIZED);
+
+	GKLocalPlayer *player = [GKLocalPlayer localPlayer];
+	[player fetchSavedGamesWithCompletionHandler:^(NSArray<GKSavedGame *> *savedGames, NSError *error) {
+		Dictionary ret;
+		ret["type"] = "fetch_saved_games";
+
+		if (error == nil) {
+			ret["result"] = "ok";
+
+			PoolStringArray names;
+			PoolStringArray device_names;
+			PoolStringArray modification_dates;
+
+			NSDateFormatter *dateFormatter = [[[NSDateFormatter alloc] init] autorelease];
+			dateFormatter.dateFormat = @"yyyy-MM-dd HH:mm";
+
+			for (GKSavedGame *savedGame in savedGames) {
+				names.push_back([savedGame.name UTF8String]);
+				device_names.push_back([savedGame.deviceName UTF8String]);
+
+				NSString *dateString = [[dateFormatter stringFromDate:savedGame.modificationDate] autorelease];
+
+				modification_dates.push_back([dateString UTF8String]);
+			}
+
+			ret["names"] = names;
+			ret["devices_names"] = device_names;
+			ret["modification_dates"] = modification_dates;
+		} else {
+			ret["result"] = "error";
+			ret["error_code"] = (int64_t)error.code;
+			ret["error_description"] = [error.localizedDescription UTF8String];
+		}
+
+		pending_events.push_back(ret);
+	}];
+
+	return OK;
+}
+
+Error GameCenter::save_game_data(Variant p_params) {
+		// NSData *data, NSString *name
+		ERR_FAIL_COND_V(!is_authenticated(), ERR_UNAUTHORIZED);
+
+		Dictionary params = p_params;
+		ERR_FAIL_COND_V(!params.has("data") || !params.has("name"), ERR_INVALID_PARAMETER);
+
+		String data = params["data"];
+		String name = params["name"];
+
+		NSString *data_str = [[[NSString alloc] initWithUTF8String:data.utf8().get_data()] autorelease];
+		NSString *name_str = [[[NSString alloc] initWithUTF8String:name.utf8().get_data()] autorelease];
+		NSData *data_ns = [[data_str dataUsingEncoding:NSUTF8StringEncoding] autorelease];
+
+		GKLocalPlayer *player = [GKLocalPlayer localPlayer];
+		[player saveGameData:data_ns withName:name_str completionHandler:^(GKSavedGame *savedGame, NSError *error) {
+			Dictionary ret;
+			ret["type"] = "save_game_data";
+
+			if (error == nil) {
+				ret["result"] = "ok";
+			} else {
+				ret["result"] = "error";
+				ret["error_code"] = (int64_t)error.code;
+				ret["error_description"] = [error.localizedDescription UTF8String];
+			}
+
+			pending_events.push_back(ret);
+		}];
+
+		return OK;
+}
 
 void GameCenter::game_center_closed() {
 
