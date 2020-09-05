@@ -388,8 +388,7 @@ Error GameCenter::fetch_saved_games() {
 				names.push_back([savedGame.name UTF8String]);
 				device_names.push_back([savedGame.deviceName UTF8String]);
 
-				NSString *dateString = [[dateFormatter stringFromDate:savedGame.modificationDate] autorelease];
-
+				NSString *dateString = [dateFormatter stringFromDate:savedGame.modificationDate];
 				modification_dates.push_back([dateString UTF8String]);
 			}
 
@@ -409,36 +408,36 @@ Error GameCenter::fetch_saved_games() {
 }
 
 Error GameCenter::save_game_data(Variant p_params) {
-		// NSData *data, NSString *name
-		ERR_FAIL_COND_V(!is_authenticated(), ERR_UNAUTHORIZED);
 
-		Dictionary params = p_params;
-		ERR_FAIL_COND_V(!params.has("data") || !params.has("name"), ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(!is_authenticated(), ERR_UNAUTHORIZED);
 
-		String data = params["data"];
-		String name = params["name"];
+	Dictionary params = p_params;
+	ERR_FAIL_COND_V(!params.has("data") || !params.has("name"), ERR_INVALID_PARAMETER);
 
-		NSString *data_str = [[[NSString alloc] initWithUTF8String:data.utf8().get_data()] autorelease];
-		NSString *name_str = [[[NSString alloc] initWithUTF8String:name.utf8().get_data()] autorelease];
-		NSData *data_ns = [[data_str dataUsingEncoding:NSUTF8StringEncoding] autorelease];
+	String data = params["data"];
+	String name = params["name"];
 
-		GKLocalPlayer *player = [GKLocalPlayer localPlayer];
-		[player saveGameData:data_ns withName:name_str completionHandler:^(GKSavedGame *savedGame, NSError *error) {
-			Dictionary ret;
-			ret["type"] = "save_game_data";
+	NSString *data_str = [[[NSString alloc] initWithUTF8String:data.utf8().get_data()] autorelease];
+	NSString *name_str = [[NSString alloc] initWithUTF8String:name.utf8().get_data()];
+	NSData *data_ns = [data_str dataUsingEncoding:NSUTF8StringEncoding];
 
-			if (error == nil) {
-				ret["result"] = "ok";
-			} else {
-				ret["result"] = "error";
-				ret["error_code"] = (int64_t)error.code;
-				ret["error_description"] = [error.localizedDescription UTF8String];
-			}
+	GKLocalPlayer *player = [GKLocalPlayer localPlayer];
+	[player saveGameData:data_ns withName:name_str completionHandler:^(GKSavedGame *savedGame, NSError *error) {
+		Dictionary ret;
+		ret["type"] = "save_game_data";
 
-			pending_events.push_back(ret);
-		}];
+		if (error == nil) {
+			ret["result"] = "ok";
+		} else {
+			ret["result"] = "error";
+			ret["error_code"] = (int64_t)error.code;
+			ret["error_description"] = [error.localizedDescription UTF8String];
+		}
 
-		return OK;
+		pending_events.push_back(ret);
+	}];
+
+	return OK;
 }
 
 void GameCenter::game_center_closed() {
