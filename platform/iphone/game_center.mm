@@ -49,6 +49,8 @@ extern "C" {
 
 GameCenter *GameCenter::instance = NULL;
 
+NSArray<GKSavedGame *> *m_savedGames;
+
 void GameCenter::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_authenticated"), &GameCenter::is_authenticated);
 
@@ -61,6 +63,7 @@ void GameCenter::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("request_identity_verification_signature"), &GameCenter::request_identity_verification_signature);
 	ClassDB::bind_method(D_METHOD("fetch_saved_games"), &GameCenter::fetch_saved_games);
 	ClassDB::bind_method(D_METHOD("save_game_data"), &GameCenter::save_game_data);
+	ClassDB::bind_method(D_METHOD("load_game_data"), &GameCenter::load_game_data);
 
 	ClassDB::bind_method(D_METHOD("get_pending_event_count"), &GameCenter::get_pending_event_count);
 	ClassDB::bind_method(D_METHOD("pop_pending_event"), &GameCenter::pop_pending_event);
@@ -375,6 +378,7 @@ Error GameCenter::fetch_saved_games() {
 		ret["type"] = "fetch_saved_games";
 
 		if (error == nil) {
+			m_savedGames = [[NSArray alloc] initWithArray:savedGames copyItems:true];
 			ret["result"] = "ok";
 
 			PoolStringArray names;
@@ -393,7 +397,7 @@ Error GameCenter::fetch_saved_games() {
 			}
 
 			ret["names"] = names;
-			ret["devices_names"] = device_names;
+			ret["device_names"] = device_names;
 			ret["modification_dates"] = modification_dates;
 		} else {
 			ret["result"] = "error";
@@ -428,6 +432,49 @@ Error GameCenter::save_game_data(Variant p_params) {
 
 		if (error == nil) {
 			ret["result"] = "ok";
+		} else {
+			ret["result"] = "error";
+			ret["error_code"] = (int64_t)error.code;
+			ret["error_description"] = [error.localizedDescription UTF8String];
+		}
+
+		pending_events.push_back(ret);
+	}];
+
+	return OK;
+}
+
+Error GameCenter::load_game_data(Variant p_params) {
+
+	ERR_FAIL_COND_V(!is_authenticated(), ERR_UNAUTHORIZED);
+
+	Dictionary params = p_params;
+	ERR_FAIL_COND_V(!params.has("name"), ERR_INVALID_PARAMETER);
+
+	GKSavedGame *savedGameToLoad = NULL;
+	String name = params["name"];
+	NSString *name_str = [[[NSString alloc] initWithUTF8String:name.utf8().get_data()] autorelease];
+
+	for (GKSavedGame *savedGame in m_savedGames) {
+		if ([savedGame.name isEqualToString:name_str]) {
+			savedGameToLoad = savedGame;
+		}
+		break;
+	}
+
+	// No corresponding fetched saved games
+	if (savedGameToLoad == NULL) {
+		return ERR_INVALID_PARAMETER;
+	}
+
+	[savedGameToLoad loadDataWithCompletionHandler:^(NSData *data, NSError *error) {
+		Dictionary ret;
+		ret["type"] = "load_game_data";
+
+		if (error == nil) {
+			ret["result"] = "ok";
+			NSString *data_str = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
+			ret["game_data"] = [data_str UTF8String];
 		} else {
 			ret["result"] = "error";
 			ret["error_code"] = (int64_t)error.code;
