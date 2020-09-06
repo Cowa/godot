@@ -62,6 +62,7 @@ public:
 	Error fetch_saved_games();
 	Error save_game_data(Variant p_params);
 	Error load_game_data(Variant p_params);
+	Error resolve_conflicting_saved_games(Variant p_params);
 
 	void game_center_closed();
 

@@ -64,6 +64,7 @@ void GameCenter::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("fetch_saved_games"), &GameCenter::fetch_saved_games);
 	ClassDB::bind_method(D_METHOD("save_game_data"), &GameCenter::save_game_data);
 	ClassDB::bind_method(D_METHOD("load_game_data"), &GameCenter::load_game_data);
+	ClassDB::bind_method(D_METHOD("resolve_conflicting_saved_games"), &GameCenter::resolve_conflicting_saved_games);
 
 	ClassDB::bind_method(D_METHOD("get_pending_event_count"), &GameCenter::get_pending_event_count);
 	ClassDB::bind_method(D_METHOD("pop_pending_event"), &GameCenter::pop_pending_event);
@@ -449,17 +450,24 @@ Error GameCenter::load_game_data(Variant p_params) {
 	ERR_FAIL_COND_V(!is_authenticated(), ERR_UNAUTHORIZED);
 
 	Dictionary params = p_params;
-	ERR_FAIL_COND_V(!params.has("name"), ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(!params.has("name") || !params.has("modification_date"), ERR_INVALID_PARAMETER);
 
 	GKSavedGame *savedGameToLoad = NULL;
 	String name = params["name"];
+	String modification_date = params["modification_date"];
 	NSString *name_str = [[[NSString alloc] initWithUTF8String:name.utf8().get_data()] autorelease];
+	NSString *date_str = [[[NSString alloc] initWithUTF8String:modification_date.utf8().get_data()] autorelease];
+
+	NSDateFormatter *dateFormatter = [[[NSDateFormatter alloc] init] autorelease];
+	dateFormatter.dateFormat = @"yyyy-MM-dd HH:mm";
 
 	for (GKSavedGame *savedGame in m_savedGames) {
-		if ([savedGame.name isEqualToString:name_str]) {
+		NSString *dateString = [dateFormatter stringFromDate:savedGame.modificationDate];
+
+		if ([savedGame.name isEqualToString:name_str] && [dateString isEqualToString:date_str]) {
 			savedGameToLoad = savedGame;
+			break;
 		}
-		break;
 	}
 
 	// No corresponding fetched saved games
@@ -474,7 +482,55 @@ Error GameCenter::load_game_data(Variant p_params) {
 		if (error == nil) {
 			ret["result"] = "ok";
 			NSString *data_str = [[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] autorelease];
-			ret["game_data"] = [data_str UTF8String];
+			ret["data"] = [data_str UTF8String];
+			ret["name"] = name;
+		} else {
+			ret["result"] = "error";
+			ret["error_code"] = (int64_t)error.code;
+			ret["error_description"] = [error.localizedDescription UTF8String];
+		}
+
+		pending_events.push_back(ret);
+	}];
+
+	return OK;
+}
+
+Error GameCenter::resolve_conflicting_saved_games(Variant p_params) {
+
+	ERR_FAIL_COND_V(!is_authenticated(), ERR_UNAUTHORIZED);
+
+	Dictionary params = p_params;
+	ERR_FAIL_COND_V(!params.has("name") || !params.has("data"), ERR_INVALID_PARAMETER);
+
+	String data = params["data"];
+	String name = params["name"];
+
+	NSString *name_str = [[[NSString alloc] initWithUTF8String:name.utf8().get_data()] autorelease];
+	NSString *data_str = [[[NSString alloc] initWithUTF8String:data.utf8().get_data()] autorelease];
+	NSData *data_ns = [data_str dataUsingEncoding:NSUTF8StringEncoding];
+
+	NSMutableArray<GKSavedGame *> *conflictingSavedGames = [[NSMutableArray alloc] init];
+
+	for (GKSavedGame *savedGame in m_savedGames) {
+		if ([savedGame.name isEqualToString:name_str]) {
+			[conflictingSavedGames addObject:savedGame];
+		}
+	}
+
+	GKLocalPlayer *player = [GKLocalPlayer localPlayer];
+
+	[player resolveConflictingSavedGames:conflictingSavedGames withData:data_ns completionHandler:^(NSArray<GKSavedGame *> *savedGames, NSError *error) {
+		Dictionary ret;
+		ret["type"] = "resolve_conflicting_saved_games";
+
+		if (error == nil) {
+			ret["result"] = "ok";
+
+			for (GKSavedGame *savedGame in m_savedGames) {
+				[savedGame release];
+			}
+			m_savedGames = savedGames;
 		} else {
 			ret["result"] = "error";
 			ret["error_code"] = (int64_t)error.code;
