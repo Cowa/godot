@@ -450,12 +450,14 @@ Error GameCenter::load_game_data(Variant p_params) {
 	ERR_FAIL_COND_V(!is_authenticated(), ERR_UNAUTHORIZED);
 
 	Dictionary params = p_params;
-	ERR_FAIL_COND_V(!params.has("name") || !params.has("modification_date"), ERR_INVALID_PARAMETER);
+	ERR_FAIL_COND_V(!params.has("name") || !params.has("modification_date") || !params.has("device_name"), ERR_INVALID_PARAMETER);
 
 	GKSavedGame *savedGameToLoad = NULL;
 	String name = params["name"];
+	String device_name = params["device_name"];
 	String modification_date = params["modification_date"];
 	NSString *name_str = [[[NSString alloc] initWithUTF8String:name.utf8().get_data()] autorelease];
+	NSString *device_name_str = [[[NSString alloc] initWithUTF8String:device_name.utf8().get_data()] autorelease];
 	NSString *date_str = [[[NSString alloc] initWithUTF8String:modification_date.utf8().get_data()] autorelease];
 
 	NSDateFormatter *dateFormatter = [[[NSDateFormatter alloc] init] autorelease];
@@ -464,7 +466,7 @@ Error GameCenter::load_game_data(Variant p_params) {
 	for (GKSavedGame *savedGame in m_savedGames) {
 		NSString *dateString = [dateFormatter stringFromDate:savedGame.modificationDate];
 
-		if ([savedGame.name isEqualToString:name_str] && [dateString isEqualToString:date_str]) {
+		if ([savedGame.name isEqualToString:name_str] && [dateString isEqualToString:date_str] && [savedGame.deviceName isEqualToString:device_name_str]) {
 			savedGameToLoad = savedGame;
 			break;
 		}
@@ -530,7 +532,7 @@ Error GameCenter::resolve_conflicting_saved_games(Variant p_params) {
 			for (GKSavedGame *savedGame in m_savedGames) {
 				[savedGame release];
 			}
-			m_savedGames = savedGames;
+			m_savedGames = [[NSArray alloc] initWithArray:savedGames copyItems:true];
 		} else {
 			ret["result"] = "error";
 			ret["error_code"] = (int64_t)error.code;
